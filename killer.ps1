@@ -1,3 +1,10 @@
+# =============================================================================
+# Script de stress mémoire contrôlé - Test de résilience EDR (pentest autorisé)
+# =============================================================================
+# Attention : À n'exécuter QUE dans le cadre d'un pentest autorisé avec RoE clairs
+# =============================================================================
+
+# --- Import des appels natifs kernel32 ---
 $codeNative = @"
 using System;
 using System.Runtime.InteropServices;
@@ -48,8 +55,8 @@ function Invoke-MemoryStressTest {
     param(
         [int]$InitialBlockSizeGB   = 1,      # Taille initiale des blocs
         [int]$MinBlockSizeMB       = 64,     # Taille minimale quand on réduit
-        [int]$MaxFailedAttempts    = 150,    # Sécurité anti-boucle infinie
-        [int]$SleepOnFailureMs     = 150    # Petit délai après échec pour éviter spam
+        [int]$MaxFailedAttempts    = 200,    # Sécurité anti-boucle infinie
+        [int]$SleepOnFailureMs     = 100     # Petit délai après échec pour éviter spam
     )
 
     $blockSizeBytes = $InitialBlockSizeGB * 1GB
@@ -81,20 +88,27 @@ function Invoke-MemoryStressTest {
         }
 
         try {
-            $ptr = [MemNative]::VirtualAlloc([IntPtr]::Zero, [UIntPtr]$blockSizeBytes, $MEM_COMMIT, $PAGE_READWRITE)
+            # Allocation corrigée avec cast explicite UIntPtr
+            $ptr = [MemNative]::VirtualAlloc(
+                [IntPtr]::Zero,
+                [UIntPtr]::new($blockSizeBytes),
+                $MEM_COMMIT,
+                $PAGE_READWRITE
+            )
 
             if ($ptr -eq [IntPtr]::Zero) {
-                throw "VirtualAlloc a échoué (GetLastError: $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error()))"
+                $err = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                throw "Échec VirtualAlloc (code erreur Windows : $err)"
             }
 
             $allocatedPointers.Add($ptr)
             $totalAllocated += $blockSizeBytes
 
-            Write-Host "[+] Alloué : $([math]::Round($blockSizeBytes/1GB,2)) GB   |   Total : $([math]::Round($totalAllocated/1GB,2)) GB" -ForegroundColor Green
+            Write-Host "[+] Succès : $([math]::Round($blockSizeBytes/1GB,2)) GB alloués   |   Total : $([math]::Round($totalAllocated/1GB,2)) GB" -ForegroundColor Green
             $failedAttempts = 0
         }
         catch {
-            Write-Host "[!] Échec allocation $blockSizeBytes bytes  → $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "[!] Échec : $($_.Exception.Message)" -ForegroundColor Red
 
             $failedAttempts++
 
@@ -126,13 +140,13 @@ Write-Host "=== TEST STRESS MÉMOIRE - PENTEST AUTORISÉ ===" -ForegroundColor M
 Write-Host "Date : $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`n"
 
 Invoke-MemoryStressTest `
-    -InitialBlockSizeGB  2 `
-    -MinBlockSizeMB      32 `
-    -MaxFailedAttempts   120 `
-    -SleepOnFailureMs    120
+    -InitialBlockSizeGB  1 `
+    -MinBlockSizeMB      64 `
+    -MaxFailedAttempts   200 `
+    -SleepOnFailureMs    100
 
 # Pause finale pour observation (modifiable)
-Write-Host "`nPause de 300 secondes pour observation EDR..."
-Start-Sleep -Seconds 300
+Write-Host "`nPause de 240 secondes pour observation EDR..."
+Start-Sleep -Seconds 240
 
 Write-Host "Fin du script." -ForegroundColor Green
